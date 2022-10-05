@@ -5,9 +5,25 @@ MQTT_ADDRESS = '192.168.0.123'
 MQTT_LAMP_TOPIC = 'zigbee2mqtt/socket'
 MQTT_STRIP_TOPIC = 'zigbee2mqtt/wled/api'
 MQTT_CLIENT_ID = 'LedStripLink'
-LED_STRIP_PAYLOAD_OFF = json.dumps({ "on": False })
-LED_STRIP_PAYLOAD_ON = json.dumps({ "ps": 2})
-#TODO: track state and don't turn off if turned on manually (= lamp isn't on)
+
+class LedStrip():
+    __off_payload = json.dumps({ "on": False })
+    __on_payload = json.dumps({ "ps": 2})
+    __is_on = False
+
+    def get_payload(self):
+        return self.__on_payload if self.__is_on else self.__off_payload
+
+    #TODO: fetch led strip preset via api and leave it alone if changed
+    def update_state(self, state):
+        state = bool(state)
+        is_new_state = self.__is_on != state
+        self.__is_on = state
+
+        return is_new_state
+
+led_strip = LedStrip()
+
 def on_connect(client, userdata, flags, rc):
     client.subscribe(MQTT_LAMP_TOPIC)
 
@@ -19,14 +35,15 @@ def parse_mqtt_message(topic, payload):
         print(e)
         return False
 
-def send_led_strip_trigger(client, is_on):
-    message = LED_STRIP_PAYLOAD_ON if is_on else LED_STRIP_PAYLOAD_OFF
-    client.publish(MQTT_STRIP_TOPIC, message)
+def send_led_strip_trigger(client, payload):
+    client.publish(MQTT_STRIP_TOPIC, payload)
 
 def on_message(client, userdata, msg):
-    print(msg.topic + ' ' + str(msg.payload))
     is_lamp_on = parse_mqtt_message(msg.topic, msg.payload.decode('utf-8'))
-    send_led_strip_trigger(client, is_lamp_on)
+    is_state_changed = led_strip.update_state(is_lamp_on)
+
+    if is_state_changed:
+        send_led_strip_trigger(client, led_strip.get_payload())
 
 def main():
     mqtt_client = mqtt.Client(MQTT_CLIENT_ID)
